@@ -3,7 +3,7 @@ const router = express.Router();
 const Report = require('../models/Report');
 
 // POST /api/report
-router.post('/', async (req, res) => {
+router.post('/post', async (req, res) => {
   try {
     const { latitude, longitude, networkType, signalStrength } = req.body;
     const newReport = new Report({ latitude, longitude, networkType, signalStrength });
@@ -17,6 +17,15 @@ router.post('/', async (req, res) => {
   }
 });
 
+// GET /api/report - Get all reports
+router.get('/get', async (req, res) => {
+  try {
+    const reports = await Report.find();
+    res.json(reports);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch reports' });
+  }
+});
 
 module.exports = router;
 
