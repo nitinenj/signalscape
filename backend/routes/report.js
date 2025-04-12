@@ -8,10 +8,15 @@ router.post('/', async (req, res) => {
     const { latitude, longitude, networkType, signalStrength } = req.body;
     const newReport = new Report({ latitude, longitude, networkType, signalStrength });
     const savedReport = await newReport.save();
+
+    console.log("Saved report to MongoDB:", savedReport); // 🖨️ This will show the saved object
+
     res.status(201).json(savedReport);
   } catch (err) {
     res.status(400).json({ error: 'Invalid report format', details: err });
   }
 });
 
+
 module.exports = router;
+

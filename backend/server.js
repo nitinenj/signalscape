@@ -9,21 +9,15 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Connect to DB
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log("MongoDB connected"))
-.catch(err => console.error("MongoDB connection error:", err));
+// MongoDB Connection
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB connected"))
+  .catch(err => console.error("MongoDB connection error:", err));
 
-
-// for reports - GPT
+// Routes
 const reportRoutes = require('./routes/report');
 app.use('/api/report', reportRoutes);
 
-
-// Routes
 app.get('/', (req, res) => {
   res.send('SignalScape API is live!');
 });
