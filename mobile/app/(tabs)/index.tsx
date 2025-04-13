@@ -42,6 +42,21 @@ interface SpeedTestResult {
 // API configuration
 const API_URL = 'https://signalscape.onrender.com';
 
+// Brand color constants
+const BRAND_COLORS = {
+  primary: '#008b8e',
+  poor: '#c33813',
+  fair: '#fff624',
+  good: '#9df37d',
+  excellent: '#15752a',
+  white: '#ffffff',
+  black: '#2c3e50',
+  grey: '#e0e0e0',
+  light: 'rgba(255, 255, 255, 0.8)',
+  button: '#008b8e',
+  text: '#2c3e50',
+};
+
 export default function HomeScreen() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -55,12 +70,25 @@ export default function HomeScreen() {
   const [isFirstLaunch, setIsFirstLaunch] = useState(true);
   const [permissionGranted, setPermissionGranted] = useState(false);
   const [showSplash, setShowSplash] = useState(true);
+  const [showLegend, setShowLegend] = useState(false);
 
   // Animation values
   const logoOpacity = useRef(new Animated.Value(1)).current;
-  const logoScale = useRef(new Animated.Value(1)).current;
+  const logoScale = useRef(new Animated.Value(0.5)).current;
   const mapOpacity = useRef(new Animated.Value(0)).current;
   const resultsHeight = useRef(new Animated.Value(0)).current;
+  const logoRotation = useRef(new Animated.Value(0)).current;
+  const logoPosition = useRef(new Animated.Value(0)).current;
+  const legendHeight = useRef(new Animated.Value(0)).current;
+
+  // Map reference
+  const mapRef = useRef<MapView>(null);
+
+  // Logo rotation animation
+  const spin = logoRotation.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg']
+  });
 
   // Default location for map if real location is not available yet
   const defaultLocation = {
@@ -78,6 +106,16 @@ export default function HomeScreen() {
 
   // Use real location or default
   const displayLocation = location || defaultLocation;
+
+  // Calculate the zoom level based on location
+  const getZoomLevel = () => {
+    return {
+      latitude: displayLocation.coords.latitude,
+      longitude: displayLocation.coords.longitude,
+      latitudeDelta: 0.05, // More zoomed in (smaller value)
+      longitudeDelta: 0.05, // More zoomed in (smaller value)
+    };
+  };
 
   // Get location and connection strength
   const getLocationAndConnection = async () => {
@@ -103,6 +141,16 @@ export default function HomeScreen() {
       const loc = await Location.getCurrentPositionAsync({});
       console.log("Location received:", loc.coords);
       setLocation(loc);
+
+      // Zoom to user location
+      if (mapRef.current) {
+        mapRef.current.animateToRegion({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }, 1000);
+      }
 
       // Check network connection
       console.log("Checking network connection");
@@ -161,6 +209,16 @@ export default function HomeScreen() {
     setShowResults(show);
     Animated.timing(resultsHeight, {
       toValue: show ? 1 : 0,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
+  };
+  
+  // Toggle legend panel with animation
+  const toggleLegend = () => {
+    setShowLegend(!showLegend);
+    Animated.timing(legendHeight, {
+      toValue: showLegend ? 0 : 1,
       duration: 300,
       useNativeDriver: false,
     }).start();
@@ -384,22 +442,18 @@ export default function HomeScreen() {
     setReportData(mockData);
   };
 
-  // Color generation based on signal strength
+  // Color generation based on signal strength - using the defined colors
   function getColorFromValue(value: number, darkenFactor: number = 0): string {
     const applyDarken = (color: number) => Math.max(0, color - darkenFactor);
 
-    if (value <= 10) {
-      return `rgba(${applyDarken(0)}, ${applyDarken(0)}, ${applyDarken(0)}, 0.9)`;
-    } else if (value <= 40) {
-      const red = applyDarken(255);
-      const green = applyDarken(Math.floor((value - 10) * (255 / 30)));
-      return `rgba(${red}, ${green}, 0, 0.3)`;
-    } else if (value <= 70) {
-      const red = applyDarken(Math.floor(255 - (value - 40) * (255 / 30)));
-      const green = applyDarken(255);
-      return `rgba(${red}, ${green}, 0, 0.3)`;
+    if (value <= 25) {
+      return BRAND_COLORS.poor;
+    } else if (value <= 50) {
+      return BRAND_COLORS.fair;
+    } else if (value <= 75) {
+      return BRAND_COLORS.good;
     } else {
-      return `rgba(${applyDarken(0)}, ${applyDarken(255)}, ${applyDarken(0)}, 0.3)`;
+      return BRAND_COLORS.excellent;
     }
   }
 
@@ -407,6 +461,41 @@ export default function HomeScreen() {
   const formatSpeed = (speed: number): string => {
     if (speed < 1) return `${(speed * 1000).toFixed(0)} Kbps`;
     return `${speed.toFixed(1)} Mbps`;
+  };
+
+  // Run splash screen animation
+  const runSplashAnimation = () => {
+    // Create a sequence of animations
+    Animated.sequence([
+      // First: scale up logo
+      Animated.timing(logoScale, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      // Then rotate logo
+      Animated.timing(logoRotation, {
+        toValue: 1,
+        duration: 800,
+        useNativeDriver: true,
+      }),
+      // Finally fade out splash and fade in map
+      Animated.parallel([
+        Animated.timing(logoOpacity, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(mapOpacity, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        })
+      ])
+    ]).start(() => {
+      setShowSplash(false);
+      setIsFirstLaunch(false);
+    });
   };
 
   // Initial data fetch on component mount and splash animation
@@ -424,29 +513,10 @@ export default function HomeScreen() {
       }
     })();
     
-    // Splash screen animation
+    // Run splash screen animation after a short delay
     setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(logoOpacity, {
-          toValue: 0,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(logoScale, {
-          toValue: 1.5,
-          duration: 800,
-          useNativeDriver: true,
-        }),
-        Animated.timing(mapOpacity, {
-          toValue: 1,
-          duration: 800,
-          useNativeDriver: true,
-        })
-      ]).start(() => {
-        setShowSplash(false);
-        setIsFirstLaunch(false);
-      });
-    }, 2000);
+      runSplashAnimation();
+    }, 1000);
   }, []);
 
   // If on first launch and no permission yet, show the permission request
@@ -457,7 +527,7 @@ export default function HomeScreen() {
           <View style={styles.permissionBox}>
             <Text style={styles.permissionTitle}>Enable Location</Text>
             <Text style={styles.permissionText}>
-              SignalScape needs access to your location to map signal quality in your area.
+              BarNone needs access to your location to map signal quality in your area.
             </Text>
             <TouchableOpacity 
               style={styles.permissionButton}
@@ -477,8 +547,16 @@ export default function HomeScreen() {
     if (showSplash) {
       return (
         <Animated.View style={[styles.splashScreen, { opacity: logoOpacity }]}>
-          <Animated.View style={{ transform: [{ scale: logoScale }] }}>
-            <Text style={styles.splashLogo}>📡 SignalScape</Text>
+          <Animated.View style={{ 
+            transform: [
+              { scale: logoScale },
+              { rotate: spin }
+            ]
+          }}>
+            <View style={styles.logoContainer}>
+              <Text style={styles.splashLogo}>📡</Text>
+              <Text style={styles.splashText}>BarNone</Text>
+            </View>
           </Animated.View>
         </Animated.View>
       );
@@ -496,13 +574,9 @@ export default function HomeScreen() {
         {/* Map as the main background */}
         <View style={styles.mapWrapper}>
           <MapView
+            ref={mapRef}
             style={styles.map}
-            initialRegion={{
-              latitude: displayLocation.coords.latitude,
-              longitude: displayLocation.coords.longitude,
-              latitudeDelta: 0.1,
-              longitudeDelta: 0.1,
-            }}
+            initialRegion={getZoomLevel()}
             onMapReady={() => setMapReady(true)}
           >
             {/* Render circles for signal strength data */}
@@ -524,8 +598,8 @@ export default function HomeScreen() {
                     longitude: report.longitude,
                   }}
                   radius={20} // Bigger circles like Life360
-                  fillColor={getColorFromValue(report.signalStrength, 0.3)}
-                  strokeColor={getColorFromValue(report.signalStrength, 0.8)}
+                  fillColor={getColorFromValue(report.signalStrength)}
+                  strokeColor={getColorFromValue(report.signalStrength, 20)}
                 />
               );
             })}
@@ -550,7 +624,7 @@ export default function HomeScreen() {
                   {connectionStrength > 0 && (
                     <View style={[
                       styles.signalIndicator, 
-                      {backgroundColor: connectionStrength > 50 ? '#4CAF50' : '#FFC107'}
+                      {backgroundColor: getColorFromValue(connectionStrength)}
                     ]} />
                   )}
                 </View>
@@ -560,7 +634,7 @@ export default function HomeScreen() {
           
           {/* Header overlay */}
           <View style={styles.headerOverlay}>
-            <Text style={styles.headerTitle}>SignalScape</Text>
+            <Text style={styles.headerTitle}>BarNone</Text>
           </View>
           
           {/* Check Connection Button - Floating on Map */}
@@ -577,27 +651,50 @@ export default function HomeScreen() {
             </View>
           </TouchableOpacity>
           
-          {/* Signal Legend - small overlay at bottom */}
-          <View style={styles.legendOverlay}>
+          {/* Legend Button */}
+          <TouchableOpacity 
+            style={styles.legendButton}
+            onPress={toggleLegend}
+          >
+            <Ionicons name="information-circle-outline" size={24} color="white" />
+          </TouchableOpacity>
+          
+          {/* Legend Panel - toggled by button */}
+          <Animated.View 
+            style={[
+              styles.legendOverlay,
+              {
+                height: legendHeight.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 100]
+                }),
+                opacity: legendHeight,
+                bottom: legendHeight.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 110]
+                })
+              }
+            ]}
+          >
             <View style={styles.legendItems}>
               <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(5) }]} />
+                <View style={[styles.legendColor, { backgroundColor: BRAND_COLORS.poor }]} />
                 <Text style={styles.legendText}>Poor</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(35) }]} />
+                <View style={[styles.legendColor, { backgroundColor: BRAND_COLORS.fair }]} />
                 <Text style={styles.legendText}>Fair</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(65) }]} />
+                <View style={[styles.legendColor, { backgroundColor: BRAND_COLORS.good }]} />
                 <Text style={styles.legendText}>Good</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(90) }]} />
+                <View style={[styles.legendColor, { backgroundColor: BRAND_COLORS.excellent }]} />
                 <Text style={styles.legendText}>Excellent</Text>
               </View>
             </View>
-          </View>
+          </Animated.View>
           
           {/* Results Panel - Slide up from bottom */}
           <Animated.View 
@@ -633,9 +730,7 @@ export default function HomeScreen() {
                           styles.signalBar, 
                           {
                             width: `${connectionStrength}%`,
-                            backgroundColor: 
-                              connectionStrength > 70 ? '#4CAF50' :
-                              connectionStrength > 40 ? '#FFC107' : '#F44336'
+                            backgroundColor: getColorFromValue(connectionStrength)
                           }
                         ]} 
                       />
@@ -682,7 +777,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: BRAND_COLORS.white,
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
   // Splash Screen
@@ -690,13 +785,21 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: BRAND_COLORS.primary,
     zIndex: 10,
   },
+  logoContainer: {
+    alignItems: 'center',
+  },
   splashLogo: {
-    fontSize: 36,
+    fontSize: 60,
+    marginBottom: 16,
+    color: BRAND_COLORS.white,
+  },
+  splashText: {
+    fontSize: 40,
     fontWeight: 'bold',
-    color: '#2c3e50',
+    color: BRAND_COLORS.white,
   },
   // Main Container
   mainContainer: {
@@ -715,7 +818,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: BRAND_COLORS.light,
     padding: 15,
     zIndex: 1,
     alignItems: 'center',
@@ -725,19 +828,19 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#2c3e50',
+    color: BRAND_COLORS.primary,
   },
   // Check Connection Button
   checkButton: {
     position: 'absolute',
     top: 80,
     alignSelf: 'center',
-    backgroundColor: '#4285F4',
+    backgroundColor: BRAND_COLORS.primary,
     borderRadius: 24,
     paddingVertical: 12,
     paddingHorizontal: 20,
     elevation: 4,
-    shadowColor: '#000',
+    shadowColor: BRAND_COLORS.black,
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
@@ -748,38 +851,83 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   checkButtonText: {
-    color: 'white',
+    color: BRAND_COLORS.white,
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
   },
-  // Legend
+    // Update the legend button position in styles
+  legendButton: {
+    position: 'absolute',
+    right: 20,
+    top: 80, // Move to top right
+    backgroundColor: BRAND_COLORS.primary,
+    borderRadius: 20,
+    padding: 10,
+    zIndex: 2,
+    elevation: 4,
+  },
+    // Update legend overlay to be more compact and technically specific
   legendOverlay: {
     position: 'absolute',
-    bottom: 110,
-    left: 10,
-    right: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 8,
-    padding: 8,
-    zIndex: 1,
+    right: 20,
+    top: 130, // Position below the legend button
+    backgroundColor: BRAND_COLORS.white,
+    borderRadius: 12,
+    padding: 10,
+    zIndex: 3,
+    elevation: 4,
+    width: 200, // Fixed width instead of full width
   },
+
+  /////
+    // Add legend title style
+  legendTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: BRAND_COLORS.text,
+    marginBottom: 8,
+  },
+
+  // Update legend items layout to vertical
   legendItems: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     justifyContent: 'space-between',
   },
   legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 6,
   },
   legendColor: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 4,
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    marginRight: 6,
   },
   legendText: {
-    fontSize: 12,
+    fontSize: 14,
+    color: BRAND_COLORS.text,
+  },
+  // Marker
+  markerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  marker: {
+    backgroundColor: BRAND_COLORS.primary,
+    padding: 6,
+    borderRadius: 20,
+  },
+  markerText: {
+    fontSize: 16,
+    color: BRAND_COLORS.white,
+  },
+  signalIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 4,
   },
   // Results Panel
   resultsPanel: {
@@ -787,34 +935,29 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'white',
+    backgroundColor: BRAND_COLORS.white,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
     elevation: 5,
-    zIndex: 3,
+    overflow: 'hidden',
   },
   panelHandle: {
     width: 40,
     height: 5,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 3,
+    backgroundColor: BRAND_COLORS.grey,
+    borderRadius: 2.5,
     alignSelf: 'center',
     marginVertical: 10,
   },
   panelContent: {
+    paddingHorizontal: 20,
     flex: 1,
-    padding: 15,
   },
   panelTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 15,
-    color: '#2c3e50',
+    color: BRAND_COLORS.text,
+    marginBottom: 10,
   },
   networkInfo: {
     flexDirection: 'row',
@@ -826,138 +969,100 @@ const styles = StyleSheet.create({
   },
   networkTypeLabel: {
     fontSize: 14,
-    color: '#666',
+    color: BRAND_COLORS.text,
   },
   networkTypeValue: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    fontWeight: '600',
+    color: BRAND_COLORS.primary,
   },
   signalContainer: {
-    flex: 2,
+    flex: 1,
   },
   signalLabel: {
     fontSize: 14,
-    color: '#666',
+    color: BRAND_COLORS.text,
   },
   signalBarContainer: {
     height: 8,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: BRAND_COLORS.grey,
     borderRadius: 4,
-    marginTop: 4,
+    marginVertical: 4,
     overflow: 'hidden',
   },
   signalBar: {
-    height: '100%',
+    height: 8,
+    borderRadius: 4,
   },
   signalValue: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginTop: 2,
+    fontSize: 14,
+    color: BRAND_COLORS.text,
   },
   speedContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 15,
+    marginBottom: 20,
   },
   speedItem: {
-    flex: 1,
     alignItems: 'center',
+    flex: 1,
   },
   speedLabel: {
     fontSize: 14,
-    color: '#666',
+    color: BRAND_COLORS.text,
   },
   speedValue: {
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    fontWeight: '600',
+    color: BRAND_COLORS.primary,
   },
   closeButton: {
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 10,
+    alignSelf: 'center',
+    backgroundColor: BRAND_COLORS.primary,
+    borderRadius: 20,
+    paddingVertical: 10,
+    paddingHorizontal: 30,
   },
   closeButtonText: {
-    color: '#2c3e50',
-    fontWeight: '600',
+    color: BRAND_COLORS.white,
+    fontWeight: 'bold',
   },
-  // Permission request
+  // Permission Overlay
   permissionOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 5,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    zIndex: 20,
   },
   permissionBox: {
+    backgroundColor: BRAND_COLORS.white,
+    padding: 30,
+    borderRadius: 20,
     width: '80%',
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 5,
   },
   permissionTitle: {
     fontSize: 22,
     fontWeight: 'bold',
-    marginBottom: 15,
-    color: '#2c3e50',
+    color: BRAND_COLORS.primary,
+    marginBottom: 10,
   },
   permissionText: {
     fontSize: 16,
     textAlign: 'center',
+    color: BRAND_COLORS.text,
     marginBottom: 20,
-    color: '#555',
   },
   permissionButton: {
-    backgroundColor: '#4285F4',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
+    backgroundColor: BRAND_COLORS.primary,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
   },
   permissionButtonText: {
-    color: 'white',
+    color: BRAND_COLORS.white,
+    fontWeight: 'bold',
     fontSize: 16,
-    fontWeight: '600',
-  },
-  // Custom marker
-  markerContainer: {
-    alignItems: 'center',
-  },
-  marker: {
-    backgroundColor: 'white',
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 3,
-    borderColor: '#4285F4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 2,
-    elevation: 5,
-  },
-  markerText: {
-    fontSize: 20,
-  },
-  signalIndicator: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    width: 15,
-    height: 15,
-    borderRadius: 7.5,
-    borderWidth: 2,
-    borderColor: 'white',
   },
 });
