@@ -1,16 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { 
   View, 
   Text, 
-  Button, 
   StyleSheet, 
   Dimensions, 
   TouchableOpacity, 
   Alert, 
-  ScrollView, 
   SafeAreaView, 
   StatusBar,
-  Platform
+  Platform,
+  Animated,
+  Image
 } from 'react-native';
 import * as Location from 'expo-location';
 import MapView, { Circle, Marker } from 'react-native-maps';
@@ -51,6 +51,16 @@ export default function HomeScreen() {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [speedTestResults, setSpeedTestResults] = useState<SpeedTestResult | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [showResults, setShowResults] = useState(false);
+  const [isFirstLaunch, setIsFirstLaunch] = useState(true);
+  const [permissionGranted, setPermissionGranted] = useState(false);
+  const [showSplash, setShowSplash] = useState(true);
+
+  // Animation values
+  const logoOpacity = useRef(new Animated.Value(1)).current;
+  const logoScale = useRef(new Animated.Value(1)).current;
+  const mapOpacity = useRef(new Animated.Value(0)).current;
+  const resultsHeight = useRef(new Animated.Value(0)).current;
 
   // Default location for map if real location is not available yet
   const defaultLocation = {
@@ -74,14 +84,18 @@ export default function HomeScreen() {
     console.log("Starting getLocationAndConnection");
     setIsLoading(true);
     try {
-      // Get location permission
-      console.log("Requesting location permissions");
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      console.log("Permission status:", status);
-      
-      if (status !== 'granted') {
-        setErrorMsg('Permission to access location was denied');
-        return;
+      // Check if location permission is already granted
+      if (!permissionGranted) {
+        // Get location permission
+        console.log("Requesting location permissions");
+        let { status } = await Location.requestForegroundPermissionsAsync();
+        console.log("Permission status:", status);
+        
+        if (status !== 'granted') {
+          setErrorMsg('Permission to access location was denied');
+          return;
+        }
+        setPermissionGranted(true);
       }
 
       // Get current location
@@ -129,6 +143,9 @@ export default function HomeScreen() {
       // Refresh reports after submitting a new one
       console.log("Fetching updated report data");
       fetchReportData();
+      
+      // Show results panel
+      toggleResultsPanel(true);
     } catch (error) {
       console.log("Error caught in getLocationAndConnection:", error);
       console.error('Error getting location or connection:', error);
@@ -137,6 +154,16 @@ export default function HomeScreen() {
       console.log("Finished getLocationAndConnection");
       setIsLoading(false);
     }
+  };
+
+  // Toggle results panel with animation
+  const toggleResultsPanel = (show: boolean) => {
+    setShowResults(show);
+    Animated.timing(resultsHeight, {
+      toValue: show ? 1 : 0,
+      duration: 300,
+      useNativeDriver: false,
+    }).start();
   };
 
   // Perform a speed test
@@ -382,51 +409,92 @@ export default function HomeScreen() {
     return `${speed.toFixed(1)} Mbps`;
   };
 
-  // Initial data fetch on component mount
+  // Initial data fetch on component mount and splash animation
   useEffect(() => {
     console.log("Component mounted, fetching initial data");
     fetchReportData();
+    
+    // Check if location permissions are already granted
+    (async () => {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status === 'granted') {
+        setPermissionGranted(true);
+        const loc = await Location.getCurrentPositionAsync({});
+        setLocation(loc);
+      }
+    })();
+    
+    // Splash screen animation
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(logoOpacity, {
+          toValue: 0,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(logoScale, {
+          toValue: 1.5,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(mapOpacity, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        })
+      ]).start(() => {
+        setShowSplash(false);
+        setIsFirstLaunch(false);
+      });
+    }, 2000);
   }, []);
+
+  // If on first launch and no permission yet, show the permission request
+  const renderPermissionRequest = () => {
+    if (!showSplash && isFirstLaunch && !permissionGranted) {
+      return (
+        <View style={styles.permissionOverlay}>
+          <View style={styles.permissionBox}>
+            <Text style={styles.permissionTitle}>Enable Location</Text>
+            <Text style={styles.permissionText}>
+              SignalScape needs access to your location to map signal quality in your area.
+            </Text>
+            <TouchableOpacity 
+              style={styles.permissionButton}
+              onPress={getLocationAndConnection}
+            >
+              <Text style={styles.permissionButtonText}>Grant Permission</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      );
+    }
+    return null;
+  };
+
+  // Render splash screen
+  const renderSplash = () => {
+    if (showSplash) {
+      return (
+        <Animated.View style={[styles.splashScreen, { opacity: logoOpacity }]}>
+          <Animated.View style={{ transform: [{ scale: logoScale }] }}>
+            <Text style={styles.splashLogo}>📡 SignalScape</Text>
+          </Animated.View>
+        </Animated.View>
+      );
+    }
+    return null;
+  };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollViewContent}>
-        <TouchableOpacity 
-          style={styles.refreshButton} 
-          onPress={getLocationAndConnection}
-        >
-          <Ionicons name="refresh-outline" size={24} color="black" />
-        </TouchableOpacity>
-        
-        <Text style={styles.title}>📡 SignalScape</Text>
-        
-        <Button 
-          title={isLoading ? "Running Tests..." : "Check My Connection"} 
-          onPress={getLocationAndConnection} 
-          disabled={isLoading} 
-        />
-
-        {speedTestResults && (
-          <View style={styles.speedResults}>
-            <Text style={styles.speedTitle}>Speed Test Results:</Text>
-            <View style={styles.speedItems}>
-              <View style={styles.speedItem}>
-                <Text style={styles.speedLabel}>Download:</Text>
-                <Text style={styles.speedValue}>{formatSpeed(speedTestResults.downloadSpeed)}</Text>
-              </View>
-              <View style={styles.speedItem}>
-                <Text style={styles.speedLabel}>Upload:</Text>
-                <Text style={styles.speedValue}>{formatSpeed(speedTestResults.uploadSpeed)}</Text>
-              </View>
-              <View style={styles.speedItem}>
-                <Text style={styles.speedLabel}>Ping:</Text>
-                <Text style={styles.speedValue}>{speedTestResults.ping} ms</Text>
-              </View>
-            </View>
-          </View>
-        )}
-
-        <View style={styles.mapContainer}>
+      {/* Splash screen */}
+      {renderSplash()}
+      
+      {/* Main App UI */}
+      <Animated.View style={[styles.mainContainer, { opacity: mapOpacity }]}>
+        {/* Map as the main background */}
+        <View style={styles.mapWrapper}>
           <MapView
             style={styles.map}
             initialRegion={{
@@ -455,7 +523,7 @@ export default function HomeScreen() {
                     latitude: report.latitude,
                     longitude: report.longitude,
                   }}
-                  radius={3}
+                  radius={20} // Bigger circles like Life360
                   fillColor={getColorFromValue(report.signalStrength, 0.3)}
                   strokeColor={getColorFromValue(report.signalStrength, 0.8)}
                 />
@@ -470,85 +538,143 @@ export default function HomeScreen() {
                   longitude: location.coords.longitude,
                 }}
                 title="Your Location"
-                description={`Network: ${networkType}, Signal: ${connectionStrength}%`}
-              />
+                description={connectionStrength > 0 ? 
+                  `Network: ${networkType}, Signal: ${connectionStrength}%` : 
+                  "No connection data"
+                }
+              >
+                <View style={styles.markerContainer}>
+                  <View style={styles.marker}>
+                    <Text style={styles.markerText}>📡</Text>
+                  </View>
+                  {connectionStrength > 0 && (
+                    <View style={[
+                      styles.signalIndicator, 
+                      {backgroundColor: connectionStrength > 50 ? '#4CAF50' : '#FFC107'}
+                    ]} />
+                  )}
+                </View>
+              </Marker>
             )}
           </MapView>
-
-          <View style={styles.infoPanel}>
-            <Text style={styles.coords}>
-              📍 Location: {displayLocation.coords.latitude.toFixed(5)}, {displayLocation.coords.longitude.toFixed(5)}
-            </Text>
-            <Text style={styles.connection}>
-              {connectionStrength > 0 ? (
-                `📶 ${connectionStrength}% ${networkType} connection`
-              ) : (
-                "❌ No connection detected"
-              )}
-            </Text>
+          
+          {/* Header overlay */}
+          <View style={styles.headerOverlay}>
+            <Text style={styles.headerTitle}>SignalScape</Text>
           </View>
-
-          <View style={styles.statsPanel}>
-            <Text style={styles.statsTitle}>Network Analysis</Text>
+          
+          {/* Check Connection Button - Floating on Map */}
+          <TouchableOpacity 
+            style={styles.checkButton}
+            onPress={getLocationAndConnection}
+            disabled={isLoading}
+          >
+            <View style={styles.checkButtonInner}>
+              <Ionicons name="cellular-outline" size={24} color="white" />
+              <Text style={styles.checkButtonText}>
+                {isLoading ? "Testing..." : "Check Connection"}
+              </Text>
+            </View>
+          </TouchableOpacity>
+          
+          {/* Signal Legend - small overlay at bottom */}
+          <View style={styles.legendOverlay}>
+            <View style={styles.legendItems}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(5) }]} />
+                <Text style={styles.legendText}>Poor</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(35) }]} />
+                <Text style={styles.legendText}>Fair</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(65) }]} />
+                <Text style={styles.legendText}>Good</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendColor, { backgroundColor: getColorFromValue(90) }]} />
+                <Text style={styles.legendText}>Excellent</Text>
+              </View>
+            </View>
+          </View>
+          
+          {/* Results Panel - Slide up from bottom */}
+          <Animated.View 
+            style={[
+              styles.resultsPanel,
+              {
+                height: resultsHeight.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ['0%', '45%']
+                })
+              }
+            ]}
+          >
+            {/* Handle for dragging */}
+            <View style={styles.panelHandle} />
             
+            {/* Panel Content */}
             {speedTestResults && (
-              <>
-                <View style={styles.gauge}>
-                  <Text>Latency: {speedTestResults.ping}ms</Text>
-                  <View style={styles.gaugeBar}>
-                    <View style={{
-                      width: `${Math.min(100, speedTestResults.ping/10)}%`,
-                      height: '100%',
-                      backgroundColor: speedTestResults.ping < 50 ? '#4CAF50' : 
-                                      speedTestResults.ping < 150 ? '#FFC107' : '#F44336'
-                    }}/>
+              <View style={styles.panelContent}>
+                <Text style={styles.panelTitle}>Network Analysis</Text>
+                
+                <View style={styles.networkInfo}>
+                  <View style={styles.networkTypeContainer}>
+                    <Text style={styles.networkTypeLabel}>Network</Text>
+                    <Text style={styles.networkTypeValue}>{networkType}</Text>
+                  </View>
+                  
+                  <View style={styles.signalContainer}>
+                    <Text style={styles.signalLabel}>Signal</Text>
+                    <View style={styles.signalBarContainer}>
+                      <View 
+                        style={[
+                          styles.signalBar, 
+                          {
+                            width: `${connectionStrength}%`,
+                            backgroundColor: 
+                              connectionStrength > 70 ? '#4CAF50' :
+                              connectionStrength > 40 ? '#FFC107' : '#F44336'
+                          }
+                        ]} 
+                      />
+                    </View>
+                    <Text style={styles.signalValue}>{connectionStrength}%</Text>
                   </View>
                 </View>
-
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Network Type:</Text>
-                  <Text style={styles.detailValue}>{networkType}</Text>
+                
+                <View style={styles.speedContainer}>
+                  <View style={styles.speedItem}>
+                    <Text style={styles.speedLabel}>Download</Text>
+                    <Text style={styles.speedValue}>{formatSpeed(speedTestResults.downloadSpeed)}</Text>
+                  </View>
+                  
+                  <View style={styles.speedItem}>
+                    <Text style={styles.speedLabel}>Upload</Text>
+                    <Text style={styles.speedValue}>{formatSpeed(speedTestResults.uploadSpeed)}</Text>
+                  </View>
+                  
+                  <View style={styles.speedItem}>
+                    <Text style={styles.speedLabel}>Ping</Text>
+                    <Text style={styles.speedValue}>{speedTestResults.ping} ms</Text>
+                  </View>
                 </View>
                 
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Download Speed:</Text>
-                  <Text style={styles.detailValue}>{formatSpeed(speedTestResults.downloadSpeed)}</Text>
-                </View>
-                
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Upload Speed:</Text>
-                  <Text style={styles.detailValue}>{formatSpeed(speedTestResults.uploadSpeed)}</Text>
-                </View>
-              </>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => toggleResultsPanel(false)}
+                >
+                  <Text style={styles.closeButtonText}>Close</Text>
+                </TouchableOpacity>
+              </View>
             )}
-          </View>
+          </Animated.View>
         </View>
-
-        {/* Signal strength legend */}
-        <View style={styles.legend}>
-          <Text style={styles.legendTitle}>Signal Strength</Text>
-          <View style={styles.legendItems}>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: getColorFromValue(5) }]} />
-              <Text>Poor</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: getColorFromValue(35) }]} />
-              <Text>Fair</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: getColorFromValue(65) }]} />
-              <Text>Good</Text>
-            </View>
-            <View style={styles.legendItem}>
-              <View style={[styles.legendColor, { backgroundColor: getColorFromValue(90) }]} />
-              <Text>Excellent</Text>
-            </View>
-          </View>
-        </View>
-
-        {errorMsg && <Text style={styles.error}>{errorMsg}</Text>}
-      </ScrollView>
+      </Animated.View>
+      
+      {/* Permission request overlay */}
+      {renderPermissionRequest()}
     </SafeAreaView>
   );
 }
@@ -559,133 +685,84 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight : 0,
   },
-  scrollView: {
-    flex: 1,
-    backgroundColor: '#fff',
-  },
-  scrollViewContent: {
-    paddingBottom: 30,
-  },
-  refreshButton: {
-    position: 'absolute',
-    top: 15,
-    right: 15,
-    padding: 10,
+  // Splash Screen
+  splashScreen: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
     zIndex: 10,
   },
-  title: {
-    fontSize: 28,
-    marginTop: 40,
-    marginBottom: 20,
-    marginHorizontal: 10,
-    textAlign: 'center',
+  splashLogo: {
+    fontSize: 36,
     fontWeight: 'bold',
-  },
-  mapContainer: {
-    marginTop: 20,
-    marginHorizontal: 10,
-    borderRadius: 10,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  map: {
-    width: '100%',
-    height: Dimensions.get('window').height * 0.35,
-  },
-  speedResults: {
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 5,
-    marginTop: 10,
-    marginHorizontal: 10,
-  },
-  speedTitle: {
-    fontWeight: 'bold',
-    marginBottom: 5,
-  },
-  speedItems: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  speedItem: {
-    flexDirection: 'column',
-    alignItems: 'center',
-  },
-  speedLabel: {
-    fontSize: 12,
-    color: '#666',
-  },
-  speedValue: {
-    fontSize: 14,
-    fontWeight: 'bold',
-  },
-  infoPanel: {
-    marginTop: 15,
-    padding: 12,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  coords: {
-    fontSize: 16,
-    marginBottom: 5,
-  },
-  connection: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  statsPanel: {
-    marginTop: 15,
-    padding: 15,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  statsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 10,
-  },
-  gauge: {
-    marginVertical: 8,
-  },
-  gaugeBar: {
-    height: 8,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 4,
-    marginTop: 4,
-    overflow: 'hidden',
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 5,
-  },
-  detailLabel: {
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#555',
-  },
-  detailValue: {
-    fontSize: 15,
-    fontWeight: '600',
     color: '#2c3e50',
   },
-  legend: {
-    padding: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 5,
-    margin: 10,
+  // Main Container
+  mainContainer: {
+    flex: 1,
   },
-  legendTitle: {
+  mapWrapper: {
+    flex: 1,
+    position: 'relative',
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  // Header
+  headerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    padding: 15,
+    zIndex: 1,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  headerTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
-    marginBottom: 5,
+    color: '#2c3e50',
+  },
+  // Check Connection Button
+  checkButton: {
+    position: 'absolute',
+    top: 80,
+    alignSelf: 'center',
+    backgroundColor: '#4285F4',
+    borderRadius: 24,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    elevation: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+    zIndex: 2,
+  },
+  checkButtonInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginLeft: 8,
+  },
+  // Legend
+  legendOverlay: {
+    position: 'absolute',
+    bottom: 110,
+    left: 10,
+    right: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 8,
+    padding: 8,
+    zIndex: 1,
   },
   legendItems: {
     flexDirection: 'row',
@@ -699,13 +776,188 @@ const styles = StyleSheet.create({
     width: 12,
     height: 12,
     borderRadius: 6,
-    marginRight: 5,
+    marginRight: 4,
   },
-  error: {
-    marginTop: 20,
-    marginHorizontal: 10,
+  legendText: {
+    fontSize: 12,
+  },
+  // Results Panel
+  resultsPanel: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 5,
+    zIndex: 3,
+  },
+  panelHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginVertical: 10,
+  },
+  panelContent: {
+    flex: 1,
+    padding: 15,
+  },
+  panelTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: '#2c3e50',
+  },
+  networkInfo: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  networkTypeContainer: {
+    flex: 1,
+  },
+  networkTypeLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  networkTypeValue: {
     fontSize: 16,
-    color: 'red',
+    fontWeight: 'bold',
+    color: '#2c3e50',
+  },
+  signalContainer: {
+    flex: 2,
+  },
+  signalLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  signalBarContainer: {
+    height: 8,
+    backgroundColor: '#e0e0e0',
+    borderRadius: 4,
+    marginTop: 4,
+    overflow: 'hidden',
+  },
+  signalBar: {
+    height: '100%',
+  },
+  signalValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginTop: 2,
+  },
+  speedContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 15,
+  },
+  speedItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  speedLabel: {
+    fontSize: 14,
+    color: '#666',
+  },
+  speedValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+  },
+  closeButton: {
+    backgroundColor: '#f0f0f0',
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  closeButtonText: {
+    color: '#2c3e50',
+    fontWeight: '600',
+  },
+  // Permission request
+  permissionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  permissionBox: {
+    width: '80%',
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  permissionTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: '#2c3e50',
+  },
+  permissionText: {
+    fontSize: 16,
     textAlign: 'center',
+    marginBottom: 20,
+    color: '#555',
+  },
+  permissionButton: {
+    backgroundColor: '#4285F4',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 24,
+  },
+  permissionButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  // Custom marker
+  markerContainer: {
+    alignItems: 'center',
+  },
+  marker: {
+    backgroundColor: 'white',
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 3,
+    borderColor: '#4285F4',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 5,
+  },
+  markerText: {
+    fontSize: 20,
+  },
+  signalIndicator: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    width: 15,
+    height: 15,
+    borderRadius: 7.5,
+    borderWidth: 2,
+    borderColor: 'white',
   },
 });
