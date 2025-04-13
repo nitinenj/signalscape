@@ -40,7 +40,7 @@ interface SpeedTestResult {
 }
 
 // API configuration
-const API_URL = 'https://f9a2-129-2-89-227.ngrok-free.app';
+const API_URL = 'https://signalscape.onrender.com';
 
 export default function HomeScreen() {
   const [location, setLocation] = useState<Location.LocationObject | null>(null);
