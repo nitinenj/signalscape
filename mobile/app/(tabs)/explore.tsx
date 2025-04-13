@@ -24,13 +24,13 @@ export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const isDark = colorScheme === 'dark';
 
-  const [location, setLocation] = useState(null);
-  const [errorMsg, setErrorMsg] = useState(null);
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [connectionStrength, setConnectionStrength] = useState(0);
   const [networkType, setNetworkType] = useState('unknown');
-  const [batteryLevel, setBatteryLevel] = useState(null);
+  const [batteryLevel, setBatteryLevel] = useState<number | null>(null);
   const [scrollEnabled, setScrollEnabled] = useState(true);
-  const [trail, setTrail] = useState([]);
+  const [trail, setTrail] = useState<{ latitude: number; longitude: number; strength: number; timestamp: string }[]>([]);
   const [tracking, setTracking] = useState(false);
 
   const getLocationAndConnection = async () => {
@@ -67,7 +67,7 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchBatteryLevel();
   
-    let locationSubscription = null;
+    let locationSubscription: Location.LocationSubscription | null = null;
   
     if (tracking) {
       const startLiveTracking = async () => {
