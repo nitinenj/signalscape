@@ -18,6 +18,8 @@ import NetInfo from '@react-native-community/netinfo';
 import { Ionicons } from '@expo/vector-icons';
 import axios, { AxiosError } from 'axios';
 
+//index.tsx
+
 // Report type definition
 interface ReportData {
   _id: string;
